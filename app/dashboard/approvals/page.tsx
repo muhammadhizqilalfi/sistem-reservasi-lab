@@ -10,6 +10,7 @@ import Textarea from "@/components/ui/Textarea";
 interface ApprovalRequest {
   id: string;
   name: string;
+  email: string;
   role: "STUDENT" | "LECTURER";
   initials: string;
   date: string;
@@ -25,6 +26,7 @@ export default function ApprovalsPage() {
     {
       id: "REQ-90122",
       name: "Ahmad Rifqi",
+      email: "ahmad.rifqi@university.edu",
       role: "STUDENT",
       initials: "AR",
       date: "24 Okt 2026",
@@ -36,6 +38,7 @@ export default function ApprovalsPage() {
     {
       id: "REQ-89410",
       name: "Dr. Dewi Wulandari",
+      email: "dewi.wulandari@university.edu",
       role: "LECTURER",
       initials: "DW",
       date: "25 Okt 2026",
@@ -47,6 +50,7 @@ export default function ApprovalsPage() {
     {
       id: "REQ-88721",
       name: "Budi Tanoto",
+      email: "budi.tanoto@university.edu",
       role: "STUDENT",
       initials: "BT",
       date: "26 Okt 2026",
@@ -61,18 +65,46 @@ export default function ApprovalsPage() {
   const [processedId, setProcessedId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const handleAction = (id: string, action: "APPROVE" | "REJECT") => {
+  const handleAction = async (id: string, action: "APPROVE" | "REJECT") => {
     setProcessedId(id);
-    
-    // Simulasi loading dan penghapusan item dari antrean setelah diproses
-    setTimeout(() => {
-      setRequests(requests.filter(req => req.id !== id));
+
+    const request = requests.find((req) => req.id === id);
+    if (!request) {
+      setToastMessage("Pengajuan tidak ditemukan.");
       setProcessedId(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/booking/approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId: id,
+          action,
+          comment: notes[id] || "",
+          recipientEmail: request.email,
+          requesterName: request.name,
+          labName: request.location,
+          date: request.date,
+          time: request.time,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Gagal memproses pengajuan.");
+      }
+
+      setRequests((prev) => prev.filter((req) => req.id !== id));
       setToastMessage(action === "APPROVE" ? "Pengajuan Berhasil Disetujui" : "Pengajuan Berhasil Ditolak");
-      
-      // Hilangkan toast setelah 3 detik
+    } catch (error) {
+      console.error(error);
+      setToastMessage("Terjadi kesalahan saat mengirim notifikasi.");
+    } finally {
+      setProcessedId(null);
       setTimeout(() => setToastMessage(null), 3000);
-    }, 1000);
+    }
   };
 
   return (

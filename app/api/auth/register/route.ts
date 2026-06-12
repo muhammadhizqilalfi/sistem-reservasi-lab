@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { Role } from "@prisma/client"; // Import tipe enum Role langsung dari Prisma
+
+const allowedRoles = ["STUDENT", "LECTURER", "LABSTAFF"] as const;
 
 export async function POST(request: Request) {
   try {
@@ -16,9 +17,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Validasi apakah role yang dikirim valid sesuai Enum di schema.prisma
+    // 2. Validasi apakah role yang dikirim valid sesuai schema Prisma
     const upperRole = role.toUpperCase();
-    if (!Object.values(Role).includes(upperRole as Role)) {
+    if (!allowedRoles.includes(upperRole as typeof allowedRoles[number])) {
       return NextResponse.json(
         { error: `Peran (role) '${role}' tidak valid di dalam sistem.` },
         { status: 400 }
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
         password: hashedPassword,
         name,
         phone,
-        role: upperRole as Role, // Gunakan hasil casting enum yang sudah divalidasi
+        role: upperRole as typeof allowedRoles[number],
       },
     });
 

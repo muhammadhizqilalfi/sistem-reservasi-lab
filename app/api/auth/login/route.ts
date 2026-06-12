@@ -58,8 +58,15 @@ export async function POST(request: Request) {
       },
       { status: 200 }
     );
-  } catch (error) {
-    console.error("Login Runtime Error:", error);
+  } catch (error: any) {
+    const errorDetails = {
+      name: error?.name,
+      message: error?.message,
+      code: error?.code,
+      meta: error?.meta,
+      stack: error?.stack,
+    };
+    console.error("Login Runtime Error:", errorDetails);
     return NextResponse.json(
       { error: "Terjadi kesalahan server internal" },
       { status: 500 }
