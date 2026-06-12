@@ -42,7 +42,7 @@ export default function DashboardPage() {
         <span className="material-symbols-outlined text-[#ba1a1a] text-5xl mb-4">lock</span>
         <h3 className="text-[20px] font-bold text-[#0b1c30]">Akses Ditolak</h3>
         <p className="text-[14px] text-[#474651] mt-2 mb-6">Kamu belum login ke dalam sistem. Silakan login terlebih dahulu untuk mengakses dashboard.</p>
-        <Button variant="error" onClick={() => window.location.href = "/login"}>Menuju Halaman Login</Button>
+        <Button variant="error" onClick={() => window.location.href = "/"}>Menuju Halaman Login</Button>
       </Card>
     );
   }
