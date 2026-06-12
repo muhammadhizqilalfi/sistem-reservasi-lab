@@ -2,20 +2,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 const JWT_SECRET = process.env.JWT_SECRET || "rahasia_kelompok_plbk_super_aman_123";
 
 // =========================================================================
-// KONFIGURASI SMTP EMAIL
+// 🟢 INITIALISASI RESEND API
 // =========================================================================
-const transporter = nodemailer.createTransport({
-  service: "gmail", 
-  auth: {
-    user: process.env.EMAIL_USER || "labreserve.notification@gmail.com", 
-    pass: process.env.EMAIL_PASS || "abcd efgh ijkl mnop", 
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY || "re_dummy_key_12345");
 
 export async function PUT(request: Request) {
   try {
@@ -34,7 +28,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ message: "Sesi Anda kadaluarsa, silakan login kembali." }, { status: 401 });
     }
 
-    // 2. ENFORCEMENT ROLE: Pastikan hanya LABSTAFF (Admin) yang bisa utak-atik status
+    // 2. ENFORCEMENT ROLE: Pastikan hanya LABSTAFF (Admin) yang bisa mengakses
     if (decoded.role !== "LABSTAFF") {
       return NextResponse.json({ message: "Akses ditolak: Anda tidak memiliki hak akses Admin!" }, { status: 403 });
     }
@@ -51,7 +45,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ message: "Format status salah! Harus APPROVED atau REJECTED" }, { status: 400 });
     }
 
-    // 4. CEK KEBERADAAN DATA RESERVASI + INCLUDE USER & LAB (UNTUK EMAIL)
+    // 4. CEK KEBERADAAN DATA RESERVASI + INCLUDE USER & LAB
     const existingBooking = await prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -79,7 +73,7 @@ export async function PUT(request: Request) {
     });
 
     // =========================================================================
-    // 🟢 6. OTOMATISASI PENGIRIMAN EMAIL NOTIFIKASI + FALLBACK PLAIN TEXT
+    // 🟢 6. OTOMATISASI PENGIRIMAN EMAIL MENGGUNAKAN RESEND (ANTI-SPAM)
     // =========================================================================
     if (existingBooking.user?.email) {
       try {
@@ -97,10 +91,9 @@ export async function PUT(request: Request) {
           ? "📢 [LabReserve] Permohonan Reservasi Lab Anda DISETUJUI" 
           : "⚠️ [LabReserve] Permohonan Reservasi Lab Anda DITOLAK";
 
-        // 🟢 REVISI SOLUSI 2: Definisikan teks polos cadangan agar tidak dicurigai filter bot spam Gmail
         const isiEmailTextPolos = status === "APPROVED"
-          ? `Halo ${namaPemohon}, permohonan reservasi Anda untuk ${namaLab} pada hari ${tanggalSesi} (${existingBooking.startTime} - ${existingBooking.endTime} WIB) telah resmi DISETUJUI oleh Staf Laboratorium. Silakan datang tepat waktu.`
-          : `Halo ${namaPemohon}, permohonan reservasi Anda untuk ${namaLab} pada hari ${tanggalSesi} terpaksa DITOLAK oleh Staf Laboratorium dengan alasan resmi: "${rejectReason}". Silakan ajukan kembali jadwal alternatif lain melalui dashboard.`;
+          ? `Halo ${namaPemohon}, permohonan reservasi Anda untuk ${namaLab} pada hari ${tanggalSesi} (${existingBooking.startTime} - ${existingBooking.endTime} WIB) telah resmi DISETUJUI oleh Staf Laboratorium.`
+          : `Halo ${namaPemohon}, permohonan reservasi Anda untuk ${namaLab} pada hari ${tanggalSesi} terpaksa DITOLAK oleh Staf Laboratorium dengan alasan resmi: "${rejectReason}".`;
 
         const isiEmailHtml = status === "APPROVED" 
           ? `
@@ -114,7 +107,7 @@ export async function PUT(request: Request) {
                 <tr><td><b>Alokasi Waktu</b></td><td>: ${existingBooking.startTime} - ${existingBooking.endTime} WIB</td></tr>
                 <tr><td><b>Tujuan Sesi</b></td><td>: ${existingBooking.purpose.split("[MOHON")[0]}</td></tr>
               </table>
-              <p>Silakan datang tepat waktu dan jagalah ketertiban serta kebersihan fasilitas laboratorium akademik selama sesi berlangsung.</p>
+              <p>Silakan datang tepat waktu dan jagalah ketertiban serta kebersihan fasilitas laboratorium selama sesi berlangsung.</p>
               <hr style="border: 0; border-top: 1px solid #c8c5d3; margin: 20px 0;" />
               <small style="color: #777682;">Email ini dikirim otomatis oleh Sistem Portal Akademik LabReserve Kelompok 11.</small>
             </div>
@@ -128,27 +121,24 @@ export async function PUT(request: Request) {
                 <p style="margin: 0; font-weight: bold; color: #ba1a1a;">Alasan Penolakan Resmi:</p>
                 <p style="margin: 5px 0 0 0; color: #410002;">"${rejectReason}"</p>
               </div>
-              <p>Silakan ajukan kembali permohonan baru dengan memilih slot waktu alternatif atau ruangan laboratorium cadangan lain melalui dashboard.</p>
+              <p>Silakan ajukan kembali permohonan baru dengan memilih slot waktu alternatif melalui dashboard.</p>
               <hr style="border: 0; border-top: 1px solid #c8c5d3; margin: 20px 0;" />
               <small style="color: #777682;">Email ini dikirim otomatis oleh Sistem Portal Akademik LabReserve Kelompok 11.</small>
             </div>
           `;
 
-        // Eksekusi pengiriman email SMTP
-        transporter.sendMail({
-          from: `"LabReserve Portal" <${process.env.EMAIL_USER}>`,
+        // 🟢 EKSEKUSI PENGIRIMAN EMAIL MENGGUNAKAN SDK RESEND
+        await resend.emails.send({
+          from: "LabReserve Portal <onboarding@resend.dev>", // Menggunakan domain sandbox bawaan gratis dari Resend
           to: emailTujuan,
           subject: subjekEmail,
-          text: isiEmailTextPolos, // 🟢 SUNTIKAN REVISI SOLUSI 2: Text Polos Terpasang
+          text: isiEmailTextPolos,
           html: isiEmailHtml,
-        }).then(() => {
-          console.log(`✉️ Email notifikasi sukses terkirim ke: ${emailTujuan}`);
-        }).catch((mailErr) => {
-          console.error("❌ Gagal mengirim email SMTP:", mailErr);
         });
 
-      } catch (emailBuildError) {
-        console.error("❌ Gagal menyusun struktur komponen email:", emailBuildError);
+        console.log(`✉️ [Resend] Notifikasi sukses ditembak ke API untuk: ${emailTujuan}`);
+      } catch (resendError) {
+        console.error("❌ [Resend] Gagal memproses pengantaran email:", resendError);
       }
     }
 
