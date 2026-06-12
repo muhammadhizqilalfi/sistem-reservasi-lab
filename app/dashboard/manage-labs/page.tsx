@@ -16,9 +16,31 @@ interface LabMaster {
   status: "Operasional" | "Maintenance";
 }
 
+interface BookingMaster {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  purpose: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  user: {
+    name: string;
+    role: string;
+  };
+  lab: {
+    name: string;
+    code: string;
+  };
+}
+
 export default function ManageLabsPage() {
   const [labs, setLabs] = useState<LabMaster[]>([]);
+  const [bookings, setBookings] = useState<BookingMaster[]>([]); // State baru untuk jadwal booking
   const [loading, setLoading] = useState(true);
+  const [loadingBookings, setLoadingBookings] = useState(false);
+
+  // Navigasi Tab Kontrol ("master" = Data Master Ruang, "schedules" = Jadwal Booking)
+  const [activeTab, setActiveTab] = useState<"master" | "schedules">("master");
 
   // Filter & Search Toolbar States
   const [searchQuery, setSearchQuery] = useState("");
@@ -51,12 +73,32 @@ export default function ManageLabsPage() {
     }
   };
 
+  // --- GET JADWAL BOOKING DARI API RESERVASI ---
+  const fetchBookings = async () => {
+    try {
+      setLoadingBookings(true);
+      const res = await fetch("/api/reservations"); // Menembak endpoint GET global admin yang sudah dibuat
+      const data = await res.json();
+      if (res.ok) {
+        setBookings(data);
+      }
+    } catch (err) {
+      console.error("Gagal memuat jadwal booking aktif:", err);
+    } finally {
+      setLoadingBookings(false);
+    }
+  };
+
   useEffect(() => {
-    const delayDebounce = setTimeout(() => {
-      fetchLabs();
-    }, 300);
-    return () => clearTimeout(delayDebounce);
-  }, [searchQuery]);
+    if (activeTab === "master") {
+      const delayDebounce = setTimeout(() => {
+        fetchLabs();
+      }, 300);
+      return () => clearTimeout(delayDebounce);
+    } else {
+      fetchBookings();
+    }
+  }, [searchQuery, activeTab]);
 
   // --- 2. LOGIKA CRUD CONTROL ---
   const handleOpenAddModal = () => {
@@ -86,8 +128,8 @@ export default function ManageLabsPage() {
     if (!code || !name || !location) return;
 
     const payload = isEditMode 
-      ? { id: currentId, code, name, location, capacity } 
-      : { code, name, location, capacity };
+      ? { id: currentId, code, name, location, capacity, status } 
+      : { code, name, location, capacity, status };
 
     try {
       const res = await fetch("/api/labs", {
@@ -151,6 +193,12 @@ export default function ManageLabsPage() {
   const maintenanceLabs = labs.filter((l) => l.status === "Maintenance").length;
   const totalSeats = labs.reduce((acc, curr) => acc + curr.capacity, 0);
 
+  // Format Tanggal ISO ke Lokal Indonesia
+  const formatDate = (isoString: string) => {
+    const d = new Date(isoString);
+    return d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+  };
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -204,85 +252,179 @@ export default function ManageLabsPage() {
         </Card>
       </div>
 
-      {/* Table Data Master Layout */}
-      <div className="bg-white rounded-xl border border-[#c8c5d3] shadow-[0_4px_6px_-1px_rgb(0_0_0/0.05)] overflow-hidden">
-        <div className="p-6 border-b border-[#c8c5d3] flex flex-col sm:flex-row gap-4 justify-between items-center bg-[#f8f9ff]">
-          <div className="w-full sm:w-96">
-            <Input 
-              icon="search" 
-              placeholder="Cari Kode atau Nama Laboratorium..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Button variant="outline" icon="filter_list">Filter</Button>
-            <Button variant="outline" icon="download" onClick={handleExportCSV}>Export</Button>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[#eff4ff] border-b border-[#c8c5d3] text-[#474651] text-[12px] font-bold uppercase tracking-wider">
-                <th className="px-6 py-4">Kode Lab</th>
-                <th className="px-6 py-4">Nama Laboratorium</th>
-                <th className="px-6 py-4">Lokasi Gedung / Lantai</th>
-                <th className="px-6 py-4">Kapasitas</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4 text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#c8c5d3]/30 text-[14px]">
-              {loading ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-[#777682]">Memuat data logistik laboratorium...</td></tr>
-              ) : labs.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-[#777682]">Tidak ada ruang laboratorium ditemukan.</td></tr>
-              ) : (
-                labs.map((lab) => (
-                  <tr key={lab.id} className="hover:bg-[#f8f9ff] transition-colors">
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2 py-1 bg-[#e1e0ff] text-[#07006c] rounded-md font-bold text-[12px]">
-                        {lab.code}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 font-semibold text-[#0b1c30]">{lab.name}</td>
-                    <td className="px-6 py-4 text-[#474651]">{lab.location}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1 text-[#0b1c30] font-semibold">
-                        <span className="material-symbols-outlined text-[18px] text-[#474651]">event_seat</span>
-                        {lab.capacity} Kursi
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <Badge variant={lab.status === "Operasional" ? "success" : "error"}>
-                        {lab.status}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {/* PERBAIKAN: Kelas 'opacity-0 group-hover:opacity-100' DIHAPUS agar tombol selalu muncul */}
-                      <div className="flex justify-end gap-1 transition-all">
-                        <button 
-                          onClick={() => handleOpenEditModal(lab)}
-                          className="p-2 text-[#777682] hover:text-[#4648d4] hover:bg-[#e5eeff] rounded-full transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-[20px]">edit</span>
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteLab(lab.id, lab.name)}
-                          className="p-2 text-[#777682] hover:text-[#ba1a1a] hover:bg-[#ffdad6]/50 rounded-full transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-[20px]">delete</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* CUSTOM TAB SWITCER NAVIGATION BAR */}
+      <div className="flex border-b border-[#c8c5d3]">
+        <button
+          onClick={() => setActiveTab("master")}
+          className={`px-6 py-2.5 font-bold text-[14px] transition-all border-b-2 -mb-[2px] flex items-center gap-2 ${
+            activeTab === "master"
+              ? "border-[#312e81] text-[#312e81]"
+              : "border-transparent text-[#777682] hover:text-[#0b1c30]"
+          }`}
+        >
+          <span className="material-symbols-outlined text-[18px]">database</span>
+          Data Master Ruangan
+        </button>
+        <button
+          onClick={() => setActiveTab("schedules")}
+          className={`px-6 py-2.5 font-bold text-[14px] transition-all border-b-2 -mb-[2px] flex items-center gap-2 ${
+            activeTab === "schedules"
+              ? "border-[#312e81] text-[#312e81]"
+              : "border-transparent text-[#777682] hover:text-[#0b1c30]"
+          }`}
+        >
+          <span className="material-symbols-outlined text-[18px]">calendar_month</span>
+          Jadwal Booking Aktif
+        </button>
       </div>
+
+      {/* ========================================== */}
+      {/* KONDISI TAB 1: DATA MASTER RUANGAN LAB     */}
+      {/* ========================================== */}
+      {activeTab === "master" && (
+        <div className="bg-white rounded-xl border border-[#c8c5d3] shadow-[0_4px_6px_-1px_rgb(0_0_0/0.05)] overflow-hidden">
+          <div className="p-6 border-b border-[#c8c5d3] flex flex-col sm:flex-row gap-4 justify-between items-center bg-[#f8f9ff]">
+            <div className="w-full sm:w-96">
+              <Input 
+                icon="search" 
+                placeholder="Cari Kode atau Nama Laboratorium..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Button variant="outline" icon="filter_list">Filter</Button>
+              <Button variant="outline" icon="download" onClick={handleExportCSV}>Export</Button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#eff4ff] border-b border-[#c8c5d3] text-[#474651] text-[12px] font-bold uppercase tracking-wider">
+                  <th className="px-6 py-4">Kode Lab</th>
+                  <th className="px-6 py-4">Nama Laboratorium</th>
+                  <th className="px-6 py-4">Lokasi Gedung / Lantai</th>
+                  <th className="px-6 py-4">Kapasitas</th>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#c8c5d3]/30 text-[14px]">
+                {loading ? (
+                  <tr><td colSpan={6} className="px-6 py-8 text-center text-[#777682]">Memuat data logistik laboratorium...</td></tr>
+                ) : labs.length === 0 ? (
+                  <tr><td colSpan={6} className="px-6 py-8 text-center text-[#777682]">Tidak ada ruang laboratorium ditemukan.</td></tr>
+                ) : (
+                  labs.map((lab) => (
+                    <tr key={lab.id} className="hover:bg-[#f8f9ff] transition-colors">
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center px-2 py-1 bg-[#e1e0ff] text-[#07006c] rounded-md font-bold text-[12px]">
+                          {lab.code}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-[#0b1c30]">{lab.name}</td>
+                      <td className="px-6 py-4 text-[#474651]">{lab.location}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-1 text-[#0b1c30] font-semibold">
+                          <span className="material-symbols-outlined text-[18px] text-[#474651]">event_seat</span>
+                          {lab.capacity} Kursi
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <Badge variant={lab.status === "Operasional" ? "success" : "error"}>
+                          {lab.status}
+                        </Badge>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-1 transition-all">
+                          <button 
+                            onClick={() => handleOpenEditModal(lab)}
+                            className="p-2 text-[#777682] hover:text-[#4648d4] hover:bg-[#e5eeff] rounded-full transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-[20px]">edit</span>
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteLab(lab.id, lab.name)}
+                            className="p-2 text-[#777682] hover:text-[#ba1a1a] hover:bg-[#ffdad6]/50 rounded-full transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-[20px]">delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================== */}
+      {/* KONDISI TAB 2: TABEL JADWAL BOOKING AKTIF  */}
+      {/* ========================================== */}
+      {activeTab === "schedules" && (
+        <div className="bg-white rounded-xl border border-[#c8c5d3] shadow-[0_4px_6px_-1px_rgb(0_0_0/0.05)] overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#eff4ff] border-b border-[#c8c5d3] text-[#474651] text-[12px] font-bold uppercase tracking-wider">
+                  <th className="px-6 py-4">Laboratorium</th>
+                  <th className="px-6 py-4">Pemohon / Role</th>
+                  <th className="px-6 py-4">Tanggal Pakai</th>
+                  <th className="px-6 py-4">Alokasi Jam Sesi</th>
+                  <th className="px-6 py-4">Tujuan Keperluan</th>
+                  <th className="px-6 py-4 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#c8c5d3]/30 text-[14px]">
+                {loadingBookings ? (
+                  <tr><td colSpan={6} className="px-6 py-8 text-center text-[#777682]">Memuat seluruh agenda jadwal ruang...</td></tr>
+                ) : bookings.length === 0 ? (
+                  <tr><td colSpan={6} className="px-6 py-8 text-center text-[#777682]">Belum ada jadwal booking aktif di database.</td></tr>
+                ) : (
+                  bookings.map((booking) => (
+                    <tr key={booking.id} className="hover:bg-[#f8f9ff] transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-[#1a146b]">{booking.lab?.name || "Lab Tidak Diketahui"}</span>
+                          <span className="text-[12px] text-[#777682] font-mono">{booking.lab?.code}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-[#0b1c30]">{booking.user?.name || "Anonim"}</span>
+                          <span className="text-[11px] font-bold text-[#474651] mt-0.5 uppercase tracking-wide">
+                            {booking.user?.role || "STUDENT"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-[#0b1c30] font-medium">
+                        {formatDate(booking.date)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center gap-1 text-[13px] font-bold bg-[#eff4ff] text-[#1a146b] px-2.5 py-1 rounded-md border border-[#c8c5d3]/40">
+                          <span className="material-symbols-outlined text-[16px]">schedule</span>
+                          {booking.startTime} - {booking.endTime} WIB
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-[#474651] max-w-xs truncate" title={booking.purpose}>
+                        {booking.purpose}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <Badge variant={booking.status === "APPROVED" ? "success" : booking.status === "PENDING" ? "warning" : "error"}>
+                          {booking.status === "APPROVED" ? "Disetujui" : booking.status === "PENDING" ? "Menunggu" : "Ditolak"}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DIALOG POP-UP TAMBAH & EDIT MASTER RUANG */}
       {isModalOpen && (
@@ -305,6 +447,7 @@ export default function ManageLabsPage() {
                     placeholder="LAB-KOM-A" 
                     required 
                     value={code} 
+                    disabled={isEditMode} // Jangan izinkan ubah Primary Key saat Edit mode
                     onChange={(e) => setCode(e.target.value)} 
                   />
                 </div>
@@ -351,7 +494,7 @@ export default function ManageLabsPage() {
               </div>
 
               <div className="pt-4 border-t flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setIsModalOpen(false)}>Batal</Button>
+                <Button variant="outline" type="button" onClick={() => setIsModalOpen(false)}>Batal</Button>
                 <Button variant="primary" type="submit">
                   {isEditMode ? "Simpan Perubahan" : "Simpan Ruangan"}
                 </Button>
