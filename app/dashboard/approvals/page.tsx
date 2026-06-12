@@ -1,193 +1,316 @@
+// app/dashboard/approvals/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Card from "@/components/ui/Card";
-import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
 import Textarea from "@/components/ui/Textarea";
 
-// Tipe Data Struktur Pengajuan
-interface ApprovalRequest {
+interface Reservation {
   id: string;
-  name: string;
-  role: "STUDENT" | "LECTURER";
-  initials: string;
-  date: string;
-  time: string;
-  location: string;
-  equipment: string;
   purpose: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  user: {
+    name: string;
+    role: string;
+    email: string;
+  };
+  laboratory: {
+    name: string;
+    location: string;
+  };
 }
 
-export default function ApprovalsPage() {
-  // State untuk menyimpan daftar antrean pengajuan (Mock Data dari Stitch)
-  const [requests, setRequests] = useState<ApprovalRequest[]>([
-    {
-      id: "REQ-90122",
-      name: "Ahmad Rifqi",
-      role: "STUDENT",
-      initials: "AR",
-      date: "24 Okt 2026",
-      time: "09:00 - 13:00",
-      location: "Lab Kimia Organik II (R.402)",
-      equipment: "Spektrofotometer UV-Vis",
-      purpose: "Analisis struktur senyawa flavonoid hasil isolasi dari ekstrak daun kemangi untuk tesis semester akhir.",
-    },
-    {
-      id: "REQ-89410",
-      name: "Dr. Dewi Wulandari",
-      role: "LECTURER",
-      initials: "DW",
-      date: "25 Okt 2026",
-      time: "08:00 - 17:00",
-      location: "Lab Komputasi Lanjut (R.201)",
-      equipment: "Cluster GPU Titan X (3 Units)",
-      purpose: "Pelatihan model Deep Learning untuk deteksi dini penyakit tanaman berbasis citra satelit.",
-    },
-    {
-      id: "REQ-88721",
-      name: "Budi Tanoto",
-      role: "STUDENT",
-      initials: "BT",
-      date: "26 Okt 2026",
-      time: "13:00 - 15:00",
-      location: "Lab Mekatronika Dasar",
-      equipment: "Oskiloskop Digital, Solder Station",
-      purpose: "Perbaikan modul sirkuit kendali motor brushless untuk kompetisi robotik nasional.",
+export default function LabStaffApprovalsPage() {
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+
+  // States untuk Modal Alasan Penolakan
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [selectedBookingId, setSelectedBookingId] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
+
+  // --- 1. LOAD SEMUA ANTREAN RESERVASI (PENDING UTAMA) ---
+  const loadApprovalsQueue = async () => {
+    if (typeof window === "undefined") return;
+    const token = localStorage.getItem("token");
+
+    try {
+      setLoading(true);
+      // Memanggil API utama reservasi (Backend akan memfilter seluruh data jika tokennya Admin)
+      const res = await fetch("/api/reservations", {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        // Urutkan agar status PENDING berada di baris paling atas
+        const sortedData = data.sort((a: any, b: any) => {
+          if (a.status === "PENDING" && b.status !== "PENDING") return -1;
+          if (a.status !== "PENDING" && b.status === "PENDING") return 1;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+        setReservations(sortedData);
+      } else {
+        console.error("Gagal memuat antrean persetujuan:", data.message);
+      }
+    } catch (err) {
+      console.error("Error network:", err);
+    } finally {
+      setLoading(false);
     }
-  ]);
+  };
 
-  const [notes, setNotes] = useState<{ [key: string]: string }>({});
-  const [processedId, setProcessedId] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  useEffect(() => {
+    loadApprovalsQueue();
+  }, []);
 
-  const handleAction = (id: string, action: "APPROVE" | "REJECT") => {
-    setProcessedId(id);
-    
-    // Simulasi loading dan penghapusan item dari antrean setelah diproses
-    setTimeout(() => {
-      setRequests(requests.filter(req => req.id !== id));
-      setProcessedId(null);
-      setToastMessage(action === "APPROVE" ? "Pengajuan Berhasil Disetujui" : "Pengajuan Berhasil Ditolak");
-      
-      // Hilangkan toast setelah 3 detik
-      setTimeout(() => setToastMessage(null), 3000);
-    }, 1000);
+  // --- 2. FUNGSI APPROVE (MENYETUJUI BERKAS) ---
+  const handleApprove = async (bookingId: string) => {
+    const konfirmasi = window.confirm("Apakah Anda yakin ingin MENYETUJUI permohonan reservasi lab ini?");
+    if (!konfirmasi) return;
+
+    try {
+      setSubmittingId(bookingId);
+      const token = localStorage.getItem("token");
+
+      const res = await fetch("/api/reservations/approval", {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          bookingId,
+          status: "APPROVED",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert("Berkas reservasi berhasil disetujui!");
+        loadApprovalsQueue(); // Refresh data tabel
+      } else {
+        alert(data.message || "Gagal menyetujui berkas.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Terjadi kesalahan jaringan.");
+    } finally {
+      setSubmittingId(null);
+    }
+  };
+
+  // --- 3. FUNGSI REJECT (MEMBUKA MODAL TOLAK BERKAS) ---
+  const handleOpenRejectModal = (bookingId: string) => {
+    setSelectedBookingId(bookingId);
+    setRejectReason("");
+    setShowRejectModal(true);
+  };
+
+  // --- 4. EKSEKUSI PENOLAKAN DENGAN ALASAN NYATA ---
+  const handleRejectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rejectReason.trim()) {
+      alert("Alasan penolakan wajib diisi!");
+      return;
+    }
+
+    try {
+      setSubmittingId(selectedBookingId);
+      setShowRejectModal(false);
+      const token = localStorage.getItem("token");
+
+      const res = await fetch("/api/reservations/approval", {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          bookingId: selectedBookingId,
+          status: "REJECTED",
+          rejectReason: rejectReason,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert("Berkas permohonan resmi ditolak.");
+        loadApprovalsQueue();
+      } else {
+        alert(data.message || "Gagal menolak berkas.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Terjadi kesalahan jaringan.");
+    } finally {
+      setSubmittingId(null);
+    }
   };
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div>
-        <h3 className="text-[28px] font-bold text-[#1a146b] tracking-tight">Antrean Persetujuan</h3>
-        <p className="text-[14px] text-[#474651] mt-1">Tinjau dan proses permohonan aktif reservasi laboratorium serta peminjaman alat.</p>
+      {/* Header Halaman */}
+      <div className="space-y-1">
+        <h2 className="text-[28px] font-bold text-[#1a146b] tracking-tight">Antrean Persetujuan Dokumen</h2>
+        <p className="text-[14px] text-[#474651]">Validasi berkas masuk peminjaman ruangan laboratorium dan sirkulasi alat logistik mahasiswa maupun dosen.</p>
       </div>
 
-      {/* Analytical Statistics Bento Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card variant="elevation" className="border-l-4 border-l-[#1a146b]">
-          <p className="text-[12px] font-medium text-[#474651] uppercase tracking-wider">Menunggu Tinjauan</p>
-          <h4 className="text-[36px] font-bold text-[#1a146b] mt-1">{requests.length} Berkas</h4>
-        </Card>
-        <Card variant="elevation">
-          <p className="text-[12px] font-medium text-[#474651] uppercase tracking-wider">Disetujui Hari Ini</p>
-          <h4 className="text-[36px] font-bold text-emerald-600 mt-1">28 Sesi</h4>
-        </Card>
-        <Card variant="elevation">
-          <p className="text-[12px] font-medium text-[#474651] uppercase tracking-wider">Ditolak Hari Ini</p>
-          <h4 className="text-[36px] font-bold text-[#ba1a1a] mt-1">04 Berkas</h4>
-        </Card>
-        <Card variant="elevation" className="bg-[#312e81] text-white">
-          <p className="text-[12px] font-medium text-[#9c9af4] uppercase tracking-wider">Waktu Respon Rata-rata</p>
-          <h4 className="text-[36px] font-bold text-white mt-1">15 Menit</h4>
-        </Card>
+      {/* Konten Utama Tabel */}
+      <div className="bg-white rounded-xl border border-[#c8c5d3] shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-[#eff4ff] border-b border-[#c8c5d3] text-[#474651] text-[12px] font-bold uppercase tracking-wider">
+                <th className="px-6 py-4">Pemohon</th>
+                <th className="px-6 py-4">Lab & Tujuan</th>
+                <th className="px-6 py-4">Alokasi Waktu</th>
+                <th className="px-6 py-4 text-center">Status</th>
+                <th className="px-6 py-4 text-center">Tindakan Modifikasi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#c8c5d3]/30 text-[14px]">
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-[#777682]">
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="material-symbols-outlined animate-spin">progress_activity</span>
+                      Sinkronisasi berkas antrean Supabase...
+                    </div>
+                  </td>
+                </tr>
+              ) : reservations.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-[#777682]">
+                    <span className="material-symbols-outlined text-3xl mb-1 text-[#c8c5d3]">checklist</span>
+                    <p className="font-medium">Bersih! Tidak ada berkas antrean masuk saat ini.</p>
+                  </td>
+                </tr>
+              ) : (
+                reservations.map((item) => (
+                  <tr key={item.id} className="hover:bg-[#f8f9ff] transition-colors">
+                    {/* Kolom Pemohon */}
+                    <td className="px-6 py-4">
+                      <p className="font-bold text-[#0b1c30]">{item.user?.name || "User Luar"}</p>
+                      <p className="text-[11px] text-white bg-[#312e81] font-bold px-2 py-0.5 rounded-full w-fit uppercase tracking-wider mt-1 scale-90 -ml-1">
+                        {item.user?.role === "LECTURER" ? "Dosen" : item.user?.role === "STUDENT" ? "Mahasiswa" : "Peneliti"}
+                      </p>
+                    </td>
+
+                    {/* Kolom Lab & Tujuan */}
+                    <td className="px-6 py-4 max-w-xs">
+                      <p className="font-bold text-[#1a146b]">{item.laboratory?.name}</p>
+                      <p className="text-[13px] text-[#474651] line-clamp-2 mt-0.5" title={item.purpose}>
+                        {item.purpose}
+                      </p>
+                    </td>
+
+                    {/* Kolom Waktu */}
+                    <td className="px-6 py-4">
+                      <p className="font-semibold text-[#0b1c30]">
+                        {new Date(item.date).toLocaleDateString("id-ID", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                      </p>
+                      <p className="text-[12px] text-[#777682] font-medium">{item.startTime} - {item.endTime} WIB</p>
+                    </td>
+
+                    {/* Kolom Status Badge */}
+                    <td className="px-6 py-4 text-center">
+                      <Badge variant={item.status === "APPROVED" ? "success" : item.status === "PENDING" ? "warning" : "error"}>
+                        {item.status === "APPROVED" ? "Disetujui" : item.status === "PENDING" ? "Menunggu" : "Ditolak"}
+                      </Badge>
+                    </td>
+
+                    {/* Kolom Tombol Aksi */}
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-center gap-2">
+                        {item.status === "PENDING" ? (
+                          <>
+                            <Button 
+                              variant="primary" 
+                              size="sm" 
+                              icon="check"
+                              isLoading={submittingId === item.id}
+                              onClick={() => handleApprove(item.id)}
+                            >
+                              Setuju
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="text-[#ba1a1a] border-[#ba1a1a] hover:bg-[#ffdad6]/40"
+                              icon="close"
+                              disabled={submittingId === item.id}
+                              onClick={() => handleOpenRejectModal(item.id)}
+                            >
+                              Tolak
+                            </Button>
+                          </>
+                        ) : (
+                          <span className="text-[12px] font-medium text-[#777682] bg-[#eff4ff] px-2 py-1 rounded border border-[#c8c5d3]/40">
+                            Selesai Diproses
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Main Approval List Grid Layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {requests.length === 0 ? (
-          <Card variant="elevation" className="col-span-2 text-center py-12 text-[#777682]">
-            <span className="material-symbols-outlined text-4xl mb-2">verified_user</span>
-            <p className="text-[16px] font-medium">Semua antrean bersih! Tidak ada pengajuan tertunda.</p>
+      {/* ========================================================================= */}
+      {/* 🟢 FLOATING MODAL OVERLAY: ALASAN PENOLAKAN BERKAS                          */}
+      {/* ========================================================================= */}
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-black/50 z-[999] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+          <Card variant="elevation" className="w-full max-w-md bg-white p-6 rounded-xl border border-[#c8c5d3] shadow-2xl space-y-4">
+            <div className="flex items-center gap-2 text-[#ba1a1a]">
+              <span className="material-symbols-outlined font-bold">warning</span>
+              <h3 className="text-[18px] font-bold">Konfirmasi Penolakan</h3>
+            </div>
+            
+            <p className="text-[13px] text-[#474651] leading-relaxed">
+              Berikan catatan alasan resmi penolakan berkas ini agar pemohon (Mahasiswa/Dosen) menerima transparansi informasi pembatalan slot.
+            </p>
+
+            <form onSubmit={handleRejectSubmit} className="space-y-4">
+              <Textarea 
+                label="Alasan Penolakan Kategori Resmi"
+                placeholder="Contoh: Maaf, ruangan pada jam tersebut akan digunakan untuk Ujian Tengah Semester (UTS) Fakultas..."
+                required
+                rows={4}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+              />
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#c8c5d3]/30">
+                <Button variant="outline" type="button" onClick={() => setShowRejectModal(false)}>
+                  Kembali
+                </Button>
+                <Button 
+                  variant="primary" 
+                  type="submit" 
+                  className="bg-[#ba1a1a] hover:bg-[#93000a] text-white border-transparent"
+                >
+                  Tolak Berkas Pengajuan
+                </Button>
+              </div>
+            </form>
           </Card>
-        ) : (
-          requests.map((req) => (
-            <Card key={req.id} variant="elevation" className="flex flex-col gap-4 border border-[#c8c5d3]/60 hover:shadow-md transition-shadow">
-              {/* Card Top Row Header */}
-              <div className="flex justify-between items-start">
-                <div className="flex items-center gap-3">
-                  <div className="h-12 w-12 rounded-full bg-[#d3e4fe] flex items-center justify-center text-[#1a146b] font-bold text-[16px]">
-                    {req.initials}
-                  </div>
-                  <div>
-                    <h5 className="text-[16px] font-bold text-[#0b1c30]">{req.name}</h5>
-                    <Badge variant={req.role === "LECTURER" ? "secondary" : "info"}>{req.role}</Badge>
-                  </div>
-                </div>
-                <div className="text-right text-[12px] text-[#474651] space-y-0.5 font-medium">
-                  <p className="flex items-center justify-end gap-1"><span className="material-symbols-outlined text-[16px]">calendar_today</span> {req.date}</p>
-                  <p className="flex items-center justify-end gap-1"><span className="material-symbols-outlined text-[16px]">schedule</span> {req.time}</p>
-                </div>
-              </div>
-
-              {/* Technical Specifications Sub-Card Panel */}
-              <div className="grid grid-cols-2 gap-4 bg-[#eff4ff] p-4 rounded-lg border border-[#c8c5d3]/30">
-                <div>
-                  <p className="text-[11px] font-semibold text-[#474651] uppercase tracking-wider">Lokasi / Ruangan</p>
-                  <p className="text-[14px] font-semibold text-[#0b1c30] mt-0.5">{req.location}</p>
-                </div>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#474651] uppercase tracking-wider">Logistik Alat</p>
-                  <p className="text-[14px] font-semibold text-[#0b1c30] mt-0.5">{req.equipment}</p>
-                </div>
-                <div className="col-span-2 border-t border-[#c8c5d3]/20 pt-2">
-                  <p className="text-[11px] font-semibold text-[#474651] uppercase tracking-wider">Tujuan Penggunaan</p>
-                  <p className="text-[14px] text-[#0b1c30] leading-relaxed italic mt-1 font-normal">
-                    "{req.purpose}"
-                  </p>
-                </div>
-              </div>
-
-              {/* Action Decision Form Elements */}
-              <div className="space-y-3">
-                <Textarea
-                  label="Komentar / Alasan Keputusan Staf Lab"
-                  placeholder="Tuliskan catatan revisi atau alasan persetujuan/penolakan berkas..."
-                  value={notes[req.id] || ""}
-                  onChange={(e) => setNotes({ ...notes, [req.id]: e.target.value })}
-                />
-                
-                <div className="flex gap-3">
-                  <Button
-                    variant="error"
-                    className="flex-1 uppercase tracking-wider text-[12px]"
-                    icon="block"
-                    isLoading={processedId === req.id}
-                    onClick={() => handleAction(req.id, "REJECT")}
-                  >
-                    Tolak Pengajuan
-                  </Button>
-                  <Button
-                    variant="primary"
-                    className="flex-1 uppercase tracking-wider text-[12px]"
-                    icon="check_circle"
-                    isLoading={processedId === req.id}
-                    onClick={() => handleAction(req.id, "APPROVE")}
-                  >
-                    Setujui Pengajuan
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          ))
-        )}
-      </div>
-
-      {/* Animated Action Feedback Toast */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-[#312e81] text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 z-[100] transition-all border border-[#c3c0ff]/20">
-          <span className="material-symbols-outlined text-emerald-400 text-2xl">check_circle</span>
-          <span className="text-[14px] font-bold">{toastMessage}</span>
         </div>
       )}
     </div>
