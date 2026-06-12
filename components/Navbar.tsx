@@ -16,24 +16,52 @@ export default function Navbar() {
   });
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser);
-        // Transformasi string role agar tampilan label lebih ramah dibaca
-        let roleLabel = "Student";
-        if (parsed.role === "LECTURER") roleLabel = "Lecturer / Researcher";
-        if (parsed.role === "LABSTAFF") roleLabel = "Lab Supervisor / Admin";
+    const fetchUserProfile = async () => {
+      // Ambil token JWT yang disimpan saat login
+      const token = localStorage.getItem("token");
 
-        setUser({
-          name: parsed.name || "Academic User",
-          role: roleLabel,
-          email: parsed.email,
-        });
-      } catch (e) {
-        console.error("Gagal memproses data profile navbar", e);
+      if (!token) {
+        setUser({ name: "Belum Login", role: "Tamu", email: "" });
+        return;
       }
-    }
+
+      try {
+        // Tembak API untuk mengambil data segar langsung dari DB
+        const response = await fetch("/api/auth/me", {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.user) {
+          // Transformasi string role agar tampilan label lebih ramah dibaca
+          let roleLabel = "Mahasiswa";
+          if (data.user.role === "LECTURER") roleLabel = "Dosen";
+          if (data.user.role === "LABSTAFF") roleLabel = "Staf Lab";
+
+          setUser({
+            name: data.user.name || "Academic User",
+            role: roleLabel,
+            email: data.user.email || "",
+          });
+          
+          // Opsional: Perbarui data cadangan di localStorage agar tetap sinkron
+          localStorage.setItem("user", JSON.stringify(data.user));
+        } else {
+          // Jika token di DB sudah tidak valid/dihapus
+          setUser({ name: "Sesi Habis", role: "Tamu", email: "" });
+        }
+      } catch (e) {
+        console.error("Gagal mengambil data profile dari DB:", e);
+        setUser({ name: "Error Load", role: "Offline", email: "" });
+      }
+    };
+
+    fetchUserProfile();
   }, []);
 
   return (
@@ -69,10 +97,16 @@ export default function Navbar() {
             <p className="text-[12px] text-[#777682] mt-0.5">
               {user.role}
             </p>
+            {/* Menampilkan Email jika data sudah ter-load */}
+            {user.email && (
+              <p className="text-[10px] text-[#777682]/70 font-mono mt-0.5">
+                {user.email}
+              </p>
+            )}
           </div>
           {/* Avatar frame */}
           <div className="w-10 h-10 rounded-full border border-[#1a146b] bg-[#d3e4fe] flex items-center justify-center font-bold text-[#1a146b]">
-            {user.name.charAt(0).toUpperCase()}
+            {user.name ? user.name.charAt(0).toUpperCase() : "?"}
           </div>
         </div>
       </div>

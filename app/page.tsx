@@ -485,7 +485,7 @@ export default function AuthPage() {
                   rel="noopener noreferrer"
                   className="hover:underline ml-1 text-[16px] leading-[24px] font-600 text-[#4648d4]"
                   // Menggunakan nomor dummy resmi WhatsApp untuk tes (15551234567)
-                  href={`https://api.whatsapp.com/send?phone=6282267751557&text=${encodeURIComponent(
+                  href={`https://api.whatsapp.com/send?phone=15551234567&text=${encodeURIComponent(
                     "Halo Admin Lab, saya butuh bantuan teknis terkait Sistem Reservasi.",
                   )}`}
                 >
