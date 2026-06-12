@@ -1,97 +1,92 @@
 // app/api/dashboard/stats/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import jwt from "jsonwebtoken";
+
+const JWT_SECRET = process.env.JWT_SECRET || "rahasia_kelompok_plbk_super_aman_123";
 
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId");
-    const role = searchParams.get("role");
+    // 1. VALIDASI PASPOR TOKEN (JWT)
+    const authHeader = request.headers.get("authorization");
+    const token = authHeader?.split(" ")[1];
 
-    if (!userId || !role) {
-      return NextResponse.json({ message: "Parameter tidak lengkap" }, { status: 400 });
+    if (!token) {
+      return NextResponse.json({ message: "Otorisasi gagal: Token tidak ditemukan!" }, { status: 401 });
     }
 
-    // --------------------------------------------------
-    // KONDISI 1: STATISTIK UNTUK MAHASISWA (STUDENT)
-    // --------------------------------------------------
-    if (role === "STUDENT") {
-      const activeBookingsCount = await prisma.booking.count({
-        where: { userId, status: { in: ["PENDING", "APPROVED"] } },
-      });
-
-      // Menghitung jumlah total alat praktikum yang sedang dipinjam
-      const borrowedEquipment = await prisma.bookingEquipment.aggregate({
-        where: { booking: { userId, status: "APPROVED" } },
-        _sum: { quantity: true },
-      });
-
-      const recentActivities = await prisma.booking.findMany({
-        where: { userId },
-        include: { laboratory: true },
-        orderBy: { createdAt: "desc" },
-        take: 3, // Ambil 3 data teratas saja
-      });
-
-      return NextResponse.json({
-        activeBookings: activeBookingsCount,
-        totalEquipment: borrowedEquipment._sum.quantity || 0,
-        recentActivities,
-      });
+    // Verifikasi keaslian token sesi browser
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      return NextResponse.json({ message: "Sesi habis, silakan login kembali." }, { status: 401 });
     }
 
-    // --------------------------------------------------
-    // KONDISI 2: STATISTIK UNTUK DOSEN (LECTURER)
-    // --------------------------------------------------
-    if (role === "LECTURER") {
-      const classCount = await prisma.booking.count({
-        where: { userId, status: "APPROVED" },
-      });
+    const { userId, role } = decoded;
 
-      const pendingReschedule = await prisma.booking.count({
-        where: { userId, status: "PENDING", purpose: { contains: "MOHON RESCHEDULE" } },
-      });
+    // 2. KONDISIONAL QUERY BERDASARKAN ROLE (GLOBAL VS PERSONAL)
+    // Jika LABSTAFF -> Kondisi filter kosong {} (melihat semua)
+    // Jika STUDENT/LECTURER -> Kondisi filter dikunci ke userId mereka
+    const isAdmin = role === "LABSTAFF";
+    const scopeWhereCondition = isAdmin ? {} : { userId: userId };
 
-      return NextResponse.json({
-        classes: classCount,
-        pendingReschedule,
-      });
-    }
+    // 3. EKSEKUSI HITUNG METRIKS AGREGASI DARI DATABASE
+    const [totalReservasi, pendingReservasi, approvedReservasi, totalLaboratorium] = await Promise.all([
+      // Total semua pengajuan (termasuk rejected)
+      prisma.booking.count({
+        where: scopeWhereCondition,
+      }),
+      // Total berkas yang butuh konfirmasi
+      prisma.booking.count({
+        where: { ...scopeWhereCondition, status: "PENDING" },
+      }),
+      // Total sesi praktikum yang sah/aktif
+      prisma.booking.count({
+        where: { ...scopeWhereCondition, status: "APPROVED" },
+      }),
+      // Total laboratorium yang terdaftar di sistem (Selalu global)
+      prisma.laboratory.count(),
+    ]);
 
-    // --------------------------------------------------
-    // KONDISI 3: STATISTIK UNTUK ADMIN (LABSTAFF)
-    // --------------------------------------------------
-    if (role === "LABSTAFF") {
-      const pendingCount = await prisma.booking.count({
-        where: { status: "PENDING" },
-      });
+    // 4. AMBIL LIST AKTIVITAS TERBARU (RECENT ACTIVITIES)
+    const recentBookings = await prisma.booking.findMany({
+      where: scopeWhereCondition,
+      take: 5, // Ambil 5 data terbaru saja untuk widget ringkasan
+      orderBy: {
+        createdAt: "desc", // Urutkan dari yang paling baru di-submit
+      },
+      include: {
+        user: {
+          select: { name: true, role: true }, // Ambil nama & role pemohon
+        },
+        laboratory: {
+          select: { name: true }, // Ambil nama lab target
+        },
+      },
+    });
 
-      const brokenEquipmentCount = await prisma.equipment.count({
-        where: { condition: "Rusak" },
-      });
+    // 5. KIRIM DATA MATANG KE FRONTEND DASHBOARD
+    return NextResponse.json({
+      metrics: {
+        totalReservasi,
+        pendingReservasi,
+        approvedReservasi,
+        totalLaboratorium,
+      },
+      recentActivity: recentBookings.map((b) => ({
+        id: b.id,
+        pemohon: b.user?.name || "User Luar",
+        rolePemohon: b.user?.role || "STUDENT",
+        laboratorium: b.laboratory?.name || "Lab Umum",
+        tujuan: b.purpose.split("[MOHON")[0],
+        tanggal: b.date,
+        status: b.status,
+      })),
+    }, { status: 200 });
 
-      const totalUsersCount = await prisma.user.count();
-
-      // Hitung utilisasi ruang (Lab terpakai hari ini)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const occupiedLabsToday = await prisma.booking.count({
-        where: { date: today, status: "APPROVED" },
-      });
-      const totalLabs = await prisma.laboratory.count();
-
-      return NextResponse.json({
-        pendingApprovals: pendingCount,
-        brokenEquipment: brokenEquipmentCount,
-        totalUsers: totalUsersCount,
-        occupiedLabs: occupiedLabsToday,
-        totalLabs: totalLabs || 1,
-      });
-    }
-
-    return NextResponse.json({ message: "Role tidak dikenali" }, { status: 400 });
   } catch (error) {
-    console.error("Dashboard Stats API Error:", error);
-    return NextResponse.json({ message: "Gagal memuat statistik", error }, { status: 500 });
+    console.error("Error Dashboard Stats Engine Runtime:", error);
+    return NextResponse.json({ message: "Gagal memuat ringkasan data dashboard", error }, { status: 500 });
   }
 }
