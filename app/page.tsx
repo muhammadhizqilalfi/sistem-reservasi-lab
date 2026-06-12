@@ -410,7 +410,7 @@ export default function AuthPage() {
                         >
                           <option value="STUDENT">Mahasiswa</option>
                           <option value="LECTURER">Dosen</option>
-                          <option value="LABSTAFF">Peneliti</option>
+                          <option value="LABSTAFF">Staf Lab</option>
                         </select>
                         <ChevronDown
                           size={16}

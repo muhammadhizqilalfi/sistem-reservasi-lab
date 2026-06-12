@@ -96,3 +96,8 @@ model ApprovalLog {
   booking   Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   admin     User          @relation(fields: [adminId], references: [id], onDelete: Cascade)
 }
+
+model Category {
+  name      String   @id
+  createdAt DateTime @default(now())
+}
