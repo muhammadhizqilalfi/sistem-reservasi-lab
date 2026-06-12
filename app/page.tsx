@@ -63,11 +63,13 @@ export default function AuthPage() {
         throw new Error(data.error || "Terjadi kesalahan saat login");
       }
 
-      // Simpan token JWT ke localStorage atau cookie
+      // 🟢 REVISI: Simpan token & objek profil user sekaligus agar disinkronkan oleh dashboard
       localStorage.setItem("token", data.token);
+      localStorage.setItem("user", JSON.stringify(data.user)); 
+
       setMessage({ type: "success", text: "Login Berhasil! Mengalihkan..." });
 
-      // Redirect ke dashboard setelah sukses (sesuaikan path-nya)
+      // Redirect ke dashboard setelah sukses
       setTimeout(() => {
         window.location.href = "/dashboard";
       }, 1500);
@@ -102,14 +104,15 @@ export default function AuthPage() {
         text: "Registrasi berhasil! Silakan masuk.",
       });
 
-      // Bersihkan form register dan pindah ke tab login
+      // 🟢 REVISI LOGIK: Ubah reset role ke "STUDENT" agar serasi dengan skema database Enum capital
       setRegisterData({
         name: "",
         email: "",
         phone: "",
-        role: "mahasiswa",
+        role: "STUDENT",
         password: "",
       });
+
       setTimeout(() => {
         setActiveTab("login");
         setMessage(null);
@@ -410,7 +413,7 @@ export default function AuthPage() {
                         >
                           <option value="STUDENT">Mahasiswa</option>
                           <option value="LECTURER">Dosen</option>
-                          <option value="LABSTAFF">Staf Lab</option>
+                          <option value="LABSTAFF">Peneliti</option>
                         </select>
                         <ChevronDown
                           size={16}
@@ -484,7 +487,6 @@ export default function AuthPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:underline ml-1 text-[16px] leading-[24px] font-600 text-[#4648d4]"
-                  // Menggunakan nomor dummy resmi WhatsApp untuk tes (15551234567)
                   href={`https://api.whatsapp.com/send?phone=15551234567&text=${encodeURIComponent(
                     "Halo Admin Lab, saya butuh bantuan teknis terkait Sistem Reservasi.",
                   )}`}

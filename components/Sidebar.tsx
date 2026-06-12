@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 type MenuItem = {
   title: string;
@@ -12,23 +12,21 @@ type MenuItem = {
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
-    // Membaca data user dari localStorage
+    if (typeof window === "undefined") return;
     const storedUser = localStorage.getItem("user");
     if (storedUser) {
       try {
         const parsedUser = JSON.parse(storedUser);
-        setRole(parsedUser.role); // 'STUDENT', 'LECTURER', atau 'LABSTAFF'
+        setRole(parsedUser.role);
       } catch (e) {
         console.error("Gagal membaca session user", e);
       }
     }
   }, []);
 
-  // 1. Menu Navigasi khusus Mahasiswa (STUDENT)
   const studentMenus: MenuItem[] = [
     { title: "Dashboard", path: "/dashboard", icon: "dashboard" },
     { title: "Reservasi Lab", path: "/dashboard/booking", icon: "biotech" },
@@ -37,7 +35,6 @@ export default function Sidebar() {
     { title: "Profil", path: "/dashboard/profile", icon: "person" },
   ];
 
-  // 2. Menu Navigasi khusus Dosen (LECTURER) - Sekarang mendukung Reservasi & Pinjam Alat
   const lecturerMenus: MenuItem[] = [
     { title: "Dashboard", path: "/dashboard", icon: "dashboard" },
     { title: "Reservasi Lab", path: "/dashboard/booking", icon: "biotech" },
@@ -48,7 +45,6 @@ export default function Sidebar() {
     { title: "Profil", path: "/dashboard/profile", icon: "person" },
   ];
 
-  // 3. Menu Navigasi khusus Asisten/Staf Lab (LABSTAFF)
   const labStaffMenus: MenuItem[] = [
     { title: "Dashboard Admin", path: "/dashboard", icon: "dashboard" },
     { title: "Antrean Persetujuan", path: "/dashboard/approvals", icon: "how_to_reg" },
@@ -58,25 +54,23 @@ export default function Sidebar() {
     { title: "Audit Log", path: "/dashboard/audit-log", icon: "history" },
   ];
 
-  // Menentukan list menu berdasarkan role aktif
   const getActiveMenus = () => {
     if (role === "STUDENT") return studentMenus;
     if (role === "LECTURER") return lecturerMenus;
     if (role === "LABSTAFF") return labStaffMenus;
-    return []; // Fallback kosong jika role belum termuat
+    return [];
   };
 
   const currentMenus = getActiveMenus();
 
+  // 🟢 REVISI: Bersihkan total data sisa cache agar tidak bentrok antar role akun saat login bergantian
   const handleLogout = () => {
-    localStorage.removeItem("user");
-    localStorage.removeItem("token");
-    router.push("/");
+    localStorage.clear();
+    window.location.href = "/"; 
   };
 
   return (
     <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col py-4 px-3 bg-[#e5eeff] dark:bg-[#dce9ff] border-r border-[#c8c5d3] shadow-sm z-50">
-      {/* Brand Header */}
       <div className="mb-8 px-3">
         <div className="flex items-center gap-2">
           <div className="w-10 h-10 bg-[#1a146b] rounded-lg flex items-center justify-center">
@@ -89,7 +83,6 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Navigasi Dinamis */}
       <nav className="flex-1 space-y-1">
         {currentMenus.map((menu) => {
           const isActive = pathname === menu.path;
@@ -115,7 +108,6 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer Navigasi (Settings & Logout) */}
       <div className="pt-4 border-t border-[#c8c5d3]/50 space-y-1">
         <Link
           href="/dashboard/settings"

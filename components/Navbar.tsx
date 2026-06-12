@@ -17,7 +17,6 @@ export default function Navbar() {
 
   useEffect(() => {
     const fetchUserProfile = async () => {
-      // Ambil token JWT yang disimpan saat login
       const token = localStorage.getItem("token");
 
       if (!token) {
@@ -26,7 +25,6 @@ export default function Navbar() {
       }
 
       try {
-        // Tembak API untuk mengambil data segar langsung dari DB
         const response = await fetch("/api/auth/me", {
           method: "GET",
           headers: {
@@ -38,7 +36,6 @@ export default function Navbar() {
         const data = await response.json();
 
         if (response.ok && data.user) {
-          // Transformasi string role agar tampilan label lebih ramah dibaca
           let roleLabel = "Mahasiswa";
           if (data.user.role === "LECTURER") roleLabel = "Dosen";
           if (data.user.role === "LABSTAFF") roleLabel = "Staf Lab";
@@ -49,10 +46,10 @@ export default function Navbar() {
             email: data.user.email || "",
           });
           
-          // Opsional: Perbarui data cadangan di localStorage agar tetap sinkron
-          localStorage.setItem("user", JSON.stringify(data.user));
+          // 🟢 PERBAIKAN: Gunakan spread operator (...) agar properti 'id' dari login page tidak hilang terhapus!
+          const existingUser = JSON.parse(localStorage.getItem("user") || "{}");
+          localStorage.setItem("user", JSON.stringify({ ...existingUser, ...data.user }));
         } else {
-          // Jika token di DB sudah tidak valid/dihapus
           setUser({ name: "Sesi Habis", role: "Tamu", email: "" });
         }
       } catch (e) {
@@ -97,14 +94,12 @@ export default function Navbar() {
             <p className="text-[12px] text-[#777682] mt-0.5">
               {user.role}
             </p>
-            {/* Menampilkan Email jika data sudah ter-load */}
             {user.email && (
               <p className="text-[10px] text-[#777682]/70 font-mono mt-0.5">
                 {user.email}
               </p>
             )}
           </div>
-          {/* Avatar frame */}
           <div className="w-10 h-10 rounded-full border border-[#1a146b] bg-[#d3e4fe] flex items-center justify-center font-bold text-[#1a146b]">
             {user.name ? user.name.charAt(0).toUpperCase() : "?"}
           </div>
