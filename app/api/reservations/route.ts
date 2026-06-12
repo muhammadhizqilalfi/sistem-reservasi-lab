@@ -1,100 +1,151 @@
-// app/api/reservations/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import jwt from "jsonwebtoken";
 
-// 1. ENDPOINT POST: Mahasiswa mengajukan reservasi lab (+ opsi pinjam alat)
-export async function POST(request: Request) {
+const JWT_SECRET = process.env.JWT_SECRET || "rahasia_kelompok_plbk_super_aman_123";
+
+// Helper untuk memverifikasi token JWT secara berulang
+function verifyToken(request: Request) {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    throw new Error("Akses ditolak. Token tidak ditemukan.");
+  }
+  const token = authHeader.split(" ")[1];
+  
+  // Verifikasi token asli tanpa langsung memaksa tipe data
+  const decoded = jwt.verify(token, JWT_SECRET);
+  
+  // LOG DEBUGGING: Pantau isi token Anda di terminal VS Code saat tombol diklik
+  console.log("=== [DEBUG] ISI PAYLOAD TOKEN MAHASISWA ===", decoded);
+  
+  return decoded;
+}
+
+// ==========================================
+// 1. GET: MENGAMBIL DAFTAR RESERVASI
+// ==========================================
+export async function GET(request: Request) {
   try {
-    const body = await request.json();
-    const { userId, labCode, date, startTime, endTime, purpose, items } = body;
-
-    // Validasi data input wajib
-    if (!userId || !labCode || !date || !startTime || !endTime || !purpose) {
-      return NextResponse.json({ message: "Data formulir tidak lengkap" }, { status: 400 });
+    try {
+      verifyToken(request);
+    } catch (err: any) {
+      return NextResponse.json({ error: err.message || "Sesi tidak valid." }, { status: 401 });
     }
 
-    // Eksekusi transaksi database (Reservasi + otomatis simpan alat terpinjam jika ada)
-    const newReservation = await prisma.$transaction(async (tx) => {
-      // a. Buat data reservasi utama
-      const reservation = await tx.reservation.create({
-        data: {
-          userId,
-          labCode,
-          date: new Date(date),
-          startTime,
-          endTime,
-          purpose,
-          status: "PENDING",
+    const allBookings = await prisma.booking.findMany({
+      include: {
+        user: {
+          select: {
+            name: true,
+            role: true,
+          },
         },
-      });
-
-      // b. Jika mahasiswa sekaligus mencentang dan memilih alat lab
-      if (items && items.length > 0) {
-        for (const item of items) {
-          if (item.quantity > 0) {
-            // Catat alat ke tabel penghubung LoanItem
-            await tx.loanItem.create({
-              data: {
-                equipmentId: item.equipmentId,
-                quantity: item.quantity,
-                reservationId: reservation.id,
-              },
-            });
-
-            // Kurangi stok tersedia (availableStock) di tabel Equipment secara otomatis
-            await tx.equipment.update({
-              where: { id: item.equipmentId },
-              data: {
-                availableStock: {
-                  decrement: item.quantity,
-                },
-              },
-            });
+        laboratory: { 
+          select: {
+            name: true,
+            code: true,
+          },
+        },
+        equipments: {
+          include: {
+            equipment: true
           }
         }
-      }
-
-      return reservation;
+      },
+      orderBy: {
+        date: "desc", 
+      },
     });
 
-    return NextResponse.json(newReservation, { status: 201 });
+    const formattedBookings = allBookings.map((booking: any) => ({
+      ...booking,
+      lab: booking.laboratory, 
+    }));
+
+    return NextResponse.json(formattedBookings, { status: 200 });
+
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ message: "Gagal membuat reservasi lab", error }, { status: 500 });
+    console.error("Gagal mengambil data reservasi:", error);
+    return NextResponse.json(
+      { error: "Terjadi kesalahan internal server." },
+      { status: 500 }
+    );
   }
 }
 
-// 2. ENDPOINT GET: Mengambil data reservasi (Bisa untuk antrean Admin atau Riwayat Mahasiswa)
-export async function GET(request: Request) {
+// ==========================================
+// 2. POST: PROSES PENGAJUAN RESERVASI BARU
+// ==========================================
+export async function POST(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId"); // Filter jika dikirim param ?userId=...
-
-    let reservations;
-
-    if (userId) {
-      // Jika ada userId, berarti Mahasiswa/Dosen sedang meminta riwayat personal mereka sendiri
-      reservations = await prisma.reservation.findMany({
-        where: { userId },
-        include: { lab: true },
-        orderBy: { date: "desc" },
-      });
-    } else {
-      // Jika tidak ada parameter userId, berarti Admin Staf Lab meminta semua antrean pengajuan
-      reservations = await prisma.reservation.findMany({
-        include: {
-          user: true, // Ambil info nama mahasiswa pemohon
-          lab: true,  // Ambil info nama lab
-          loanItems: {
-            include: { equipment: true }, // Ambil info alat apa saja yang dia pinjam
-          },
-        },
-        orderBy: { createdAt: "desc" },
-      });
+    let decodedUser: any;
+    try {
+      decodedUser = verifyToken(request);
+    } catch (err: any) {
+      return NextResponse.json({ error: err.message || "Sesi login kedaluwarsa." }, { status: 401 });
     }
 
-    return NextResponse.json(reservations, { status: 200 });
+    const actualUserId = decodedUser.id || decodedUser.userId || decodedUser.sub;
+
+    if (!actualUserId) {
+      return NextResponse.json(
+        { error: "Sesi login tidak valid (ID Pengguna tidak ditemukan dalam token). Silakan re-login." },
+        { status: 401 }
+      );
+    }
+
+    const body = await request.json();
+    const { labId, date, startTime, endTime, purpose, includeLoan, loanDetails } = body;
+
+    // 2. Validasi input data dasar
+    if (!labId || !date || !startTime || !endTime || !purpose) {
+      return NextResponse.json({ error: "Form pengajuan wajib diisi lengkap." }, { status: 400 });
+    }
+
+    // 3. Gunakan Prisma Transaction agar booking dan data alat tersimpan aman bersamaan
+    const result = await prisma.$transaction(async (tx) => {
+      
+      // a. Buat data induk Booking (Reservasi Lab)
+      const booking = await tx.booking.create({
+        data: {
+          userId: actualUserId, // 👈 Menggunakan ID hasil ekstraksi aman di atas
+          labId: labId,
+          date: new Date(date),
+          startTime: startTime,
+          endTime: endTime,
+          purpose: purpose,
+          status: "PENDING", 
+        },
+      });
+
+      // b. Jika user mencentang pinjam alat DAN isi keranjang (cart) tidak kosong
+      if (includeLoan && loanDetails && loanDetails.items.length > 0) {
+        
+        const bookingEquipmentsData = loanDetails.items.map((item: any) => ({
+          bookingId: booking.id,     
+          equipmentId: item.id,      
+          quantity: item.quantity,   
+        }));
+
+        await tx.bookingEquipment.createMany({
+          data: bookingEquipmentsData,
+        });
+      }
+
+      return booking;
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      message: "Reservasi laboratorium dan peminjaman alat berhasil dikirim!", 
+      data: result 
+    }, { status: 201 });
+
   } catch (error) {
-    return NextResponse.json({ message: "Gagal memuat data reservasi", error }, { status: 500 });
+    console.error("Error pada API POST reservations:", error);
+    return NextResponse.json(
+      { error: "Terjadi kegagalan sistem database saat membuat reservasi." },
+      { status: 500 }
+    );
   }
 }

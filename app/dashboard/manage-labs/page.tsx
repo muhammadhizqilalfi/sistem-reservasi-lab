@@ -35,7 +35,7 @@ interface BookingMaster {
 
 export default function ManageLabsPage() {
   const [labs, setLabs] = useState<LabMaster[]>([]);
-  const [bookings, setBookings] = useState<BookingMaster[]>([]); // State baru untuk jadwal booking
+  const [bookings, setBookings] = useState<BookingMaster[]>([]); // State penampung jadwal booking aktif dari DB
   const [loading, setLoading] = useState(true);
   const [loadingBookings, setLoadingBookings] = useState(false);
 
@@ -73,14 +73,27 @@ export default function ManageLabsPage() {
     }
   };
 
-  // --- GET JADWAL BOOKING DARI API RESERVASI ---
+  // --- 2. GET JADWAL BOOKING AKTIF DENGAN SECURE HEADER TOKEN ---
   const fetchBookings = async () => {
+    // Mengambil token JWT internal yang disimpan pada localStorage aplikasi
+    const token = localStorage.getItem("token");
+
     try {
       setLoadingBookings(true);
-      const res = await fetch("/api/reservations"); // Menembak endpoint GET global admin yang sudah dibuat
+      const res = await fetch("/api/reservations", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}` // Menyertakan token agar lolos validasi JWT di backend
+        }
+      });
       const data = await res.json();
+      
       if (res.ok) {
-        setBookings(data);
+        // Jika data dari API dibungkus objek tertentu (misal: data.bookings), sesuaikan parameternya
+        setBookings(Array.isArray(data) ? data : data.bookings || []);
+      } else {
+        console.error("Gagal menarik data jadwal:", data.error);
       }
     } catch (err) {
       console.error("Gagal memuat jadwal booking aktif:", err);
@@ -89,6 +102,7 @@ export default function ManageLabsPage() {
     }
   };
 
+  // Efek Pemicu Otomatis saat Tab Berpindah
   useEffect(() => {
     if (activeTab === "master") {
       const delayDebounce = setTimeout(() => {
@@ -100,7 +114,7 @@ export default function ManageLabsPage() {
     }
   }, [searchQuery, activeTab]);
 
-  // --- 2. LOGIKA CRUD CONTROL ---
+  // --- 3. LOGIKA CRUD CONTROL ---
   const handleOpenAddModal = () => {
     setIsEditMode(false);
     setCurrentId("");
@@ -163,7 +177,7 @@ export default function ManageLabsPage() {
     }
   };
 
-  // --- 3. EXPORT TO CSV DATA MASTER ---
+  // --- 4. EXPORT TO CSV DATA MASTER ---
   const handleExportCSV = () => {
     if (labs.length === 0) return;
 
@@ -195,6 +209,7 @@ export default function ManageLabsPage() {
 
   // Format Tanggal ISO ke Lokal Indonesia
   const formatDate = (isoString: string) => {
+    if (!isoString) return "-";
     const d = new Date(isoString);
     return d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
   };
@@ -252,7 +267,7 @@ export default function ManageLabsPage() {
         </Card>
       </div>
 
-      {/* CUSTOM TAB SWITCER NAVIGATION BAR */}
+      {/* CUSTOM TAB SWITCHER NAVIGATION BAR */}
       <div className="flex border-b border-[#c8c5d3]">
         <button
           onClick={() => setActiveTab("master")}
@@ -447,7 +462,7 @@ export default function ManageLabsPage() {
                     placeholder="LAB-KOM-A" 
                     required 
                     value={code} 
-                    disabled={isEditMode} // Jangan izinkan ubah Primary Key saat Edit mode
+                    disabled={isEditMode}
                     onChange={(e) => setCode(e.target.value)} 
                   />
                 </div>
