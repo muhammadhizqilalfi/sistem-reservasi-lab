@@ -3,13 +3,96 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider = "postgresql"
 }
 
+// 1. Enum untuk Role Pengguna
+enum Role {
+  STUDENT
+  LECTURER
+  LABSTAFF
+}
+
+// 2. Enum untuk Status Reservasi
+enum BookingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// 3. Model User (User API Component)
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
+  id          String        @id @default(uuid())
+  email       String        @unique
+  password    String        // Untuk menyimpan hash password (bcrypt)
+  name        String
+  phone       String?
+  role        Role          @default(STUDENT)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  bookings    Booking[]     // Relasi: User bisa membuat banyak booking
+  logsActed   ApprovalLog[] // Relasi: LabStaff bisa memproses banyak log audit
 }
 
+// 4. Model Laboratorium (Laboratory Controller Component)
+model Laboratory {
+  id          String    @id @default(uuid())
+  code        String    @unique // Contoh: "LAB-KOM-A"
+  name        String
+  location    String    // Contoh: "Gedung Kuliah 3, Lantai 2"
+  capacity    Int
+  bookings    Booking[] // Relasi: Lab memiliki banyak riwayat booking
+}
+
+// 5. Model Alat Laboratorium (Inventory Manager Component)
+model Equipment {
+  id                String             @id @default(uuid())
+  name              String
+  type              String             // Contoh: "Elektronik", "Jaringan"
+  totalStock        Int
+  availableStock    Int
+  condition         String             // Contoh: "Baik", "Rusak"
+  bookingEquipments BookingEquipment[] // Relasi jembatan ke tabel booking
+}
+
+// 6. Model Reservasi Ruangan & Peminjaman (Booking Engine)
+model Booking {
+  id            String             @id @default(uuid())
+  userId        String
+  labId         String
+  purpose       String             // Tujuan peminjaman
+  date          DateTime           // Tanggal pelaksanaan
+  startTime     String             // Contoh: "08:00"
+  endTime       String             // Contoh: "10:00"
+  status        BookingStatus      @default(PENDING)
+  createdAt     DateTime           @default(now())
+  
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laboratory    Laboratory         @relation(fields: [labId], references: [id], onDelete: Cascade)
+  equipments    BookingEquipment[] // Relasi jembatan ke alat yang dipinjam
+  approvalLogs  ApprovalLog[]      // Relasi ke catatan audit staf lab
+}
+
+// 7. Tabel Jembatan (Many-to-Many) antara Booking dan Alat yang dipinjam
+model BookingEquipment {
+  id          String    @id @default(uuid())
+  bookingId   String
+  equipmentId String
+  quantity    Int       // Jumlah alat yang dipinjam dalam booking ini
+
+  booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+}
+
+// 8. Model Log Audit (ApprovalLog Component)
+model ApprovalLog {
+  id        String        @id @default(uuid())
+  bookingId String
+  adminId   String        // ID Staf Lab yang memproses
+  action    BookingStatus // APPROVED atau REJECTED
+  comment   String        // Alasan persetujuan/penolakan (Mandatori)
+  createdAt DateTime      @default(now())
+
+  booking   Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  admin     User          @relation(fields: [adminId], references: [id], onDelete: Cascade)
+}
