@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { Role } from "@prisma/client"; // Import tipe enum Role langsung dari Prisma
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { email, password, name, phone, role } = body;
 
-    // Validasi input wajib
+    // 1. Validasi input wajib
     if (!email || !password || !name || !role) {
       return NextResponse.json(
         { error: "Data tidak lengkap. Pastikan nama, email, password, dan role terisi." },
@@ -15,7 +16,16 @@ export async function POST(request: Request) {
       );
     }
 
-    // Cek apakah email sudah terdaftar sebelumnya
+    // 2. Validasi apakah role yang dikirim valid sesuai Enum di schema.prisma
+    const upperRole = role.toUpperCase();
+    if (!Object.values(Role).includes(upperRole as Role)) {
+      return NextResponse.json(
+        { error: `Peran (role) '${role}' tidak valid di dalam sistem.` },
+        { status: 400 }
+      );
+    }
+
+    // 3. Cek apakah email sudah terdaftar sebelumnya
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return NextResponse.json(
@@ -24,17 +34,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // Enkripsi password menggunakan bcryptjs sebelum disimpan
+    // 4. Enkripsi password menggunakan bcryptjs sebelum disimpan
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Simpan data user baru ke database
+    // 5. Simpan data user baru ke database
     const newUser = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
         name,
         phone,
-        role,
+        role: upperRole as Role, // Gunakan hasil casting enum yang sudah divalidasi
       },
     });
 
