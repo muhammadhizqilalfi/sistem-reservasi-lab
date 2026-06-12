@@ -37,12 +37,14 @@ export default function Sidebar() {
     { title: "Profil", path: "/dashboard/profile", icon: "person" },
   ];
 
-  // 2. Menu Navigasi khusus Dosen (LECTURER)
+  // 2. Menu Navigasi khusus Dosen (LECTURER) - Sekarang mendukung Reservasi & Pinjam Alat
   const lecturerMenus: MenuItem[] = [
     { title: "Dashboard", path: "/dashboard", icon: "dashboard" },
+    { title: "Reservasi Lab", path: "/dashboard/booking", icon: "biotech" },
+    { title: "Pinjam Alat", path: "/dashboard/inventory", icon: "construction" },
     { title: "Bulk Scheduling", path: "/dashboard/bulk-scheduler", icon: "event_repeat" },
-    { title: "Reschedule Sidang", path: "/dashboard/reschedule", icon: "calendar_month" },
-    { title: "Riwayat Pengajuan", path: "/dashboard/history", icon: "history" },
+    { title: "Reschedule Jadwal", path: "/dashboard/reschedule", icon: "calendar_month" },
+    { title: "Riwayat", path: "/dashboard/history", icon: "history" },
     { title: "Profil", path: "/dashboard/profile", icon: "person" },
   ];
 
