@@ -1,5 +1,6 @@
+// app/layout.tsx
 import type { Metadata } from "next";
-import "./globals.css";
+import "./globals.css"; // Pastikan path globals.css ini sesuai posisi filemu
 
 export const metadata: Metadata = {
   title: "LabReserve Dashboard",
